@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Y-Δ 자동 기동 회로 · 3D 결선 실습</title>
+<style>
+:root{--pn:#1a222d;--tx:#e8edf3;--mu:#93a1b3;--ac:#ff9d2e;--ok:#3ecf8e;--er:#ff5a5f;--bt:#2a3646;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:dark}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--pn:#fff;--tx:#1b2430;--mu:#5b6877;--bt:#e6ebf1;color-scheme:light}}
+html,body{height:100%;margin:0;background:#141b24}
+#app{display:flex;flex-direction:column;height:100%}
+#v{flex:1;min-height:0}
+#v canvas{display:block;width:100%;height:100%;touch-action:none}
+#p{background:var(--pn);color:var(--tx);overflow:auto;max-height:46%;padding:10px 14px;font:14px/1.5 system-ui,"Noto Sans KR",sans-serif}
+@media (min-width:860px){#app{flex-direction:row}#p{width:370px;max-height:none}}
+h1{font-size:17px;margin:0 0 4px}h1 small{color:var(--mu);font-weight:400;font-size:12px}
+h2{font-size:14px;margin:12px 0 6px;color:var(--ac)}
+#st{padding:6px 10px;border-radius:8px;background:var(--bt);font-weight:600}
+.r{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+button{background:var(--bt);color:var(--tx);border:1px solid #4a5a70;border-radius:8px;padding:7px 10px;font:inherit;cursor:pointer}
+button.pri{background:var(--ac);color:#1b1206;border-color:var(--ac);font-weight:700}
+button.dg{border-color:var(--er);color:var(--er)}
+ol{margin:6px 0;padding-left:22px;color:var(--mu);font-size:13px}
+li.d{color:var(--ok)}li.d::marker{content:"✓ "}
+#sel{color:var(--mu);font-size:13px;min-height:20px}
+#info{font-size:13px;background:var(--bt);border-radius:8px;padding:8px 10px;margin-top:8px}
+.n{color:var(--mu);font-size:12px;margin:8px 0 0}
+</style></head><body>
+<div id="app"><div id="v"></div><div id="p">
+<h1>Y-Δ 자동 기동 회로 <small>3D 결선 실습</small></h1>
+<div id="st">대기 중 · 필수 배선 완료 후 기동</div>
+<h2>① 단자 클릭 배선 <span id="pg"></span></h2>
+<div class="r"><button id="bc" class="pri">선택 단자 연결</button><button id="bu">마지막 배선 취소</button><button id="br">전체 초기화</button></div>
+<div id="sel">단자(구)를 2개 선택하세요. 드래그: 회전 · 휠/핀치: 확대</div>
+<ol id="cl"></ol>
+<h2>② 동작 시뮬레이션</h2>
+<div class="r"><button id="bs" class="pri">▶ 기동</button><button id="bx">■ 정지 / 리셋</button></div>
+<label>KT 설정시간 <b id="kv">3</b> s <input type="range" id="sl" min="1" max="6" value="3"></label>
+<h2>③ 체험 오류</h2>
+<div class="r"><button id="f1" class="dg">Y·Δ 동시 투입 오류</button><button id="f2" class="dg">타이머 전환 불발 오류</button></div>
+<div id="info"></div>
+<p class="n">교육용 회로 시각화 · 실제 장비 결선은 전원 차단 및 자격자 감독하에 수행</p>
+</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const P=id=>document.getElementById(id),wrap=P('v');
+const R=new THREE.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(devicePixelRatio,2));wrap.appendChild(R.domElement);
+const el=R.domElement,S=new THREE.Scene(),C=new THREE.PerspectiveCamera(45,1,.1,100);
+S.background=new THREE.Color(0x141b24);
+S.add(new THREE.AmbientLight(0xffffff,.65));
+const dl=new THREE.DirectionalLight(0xffffff,.9);dl.position.set(6,12,8);S.add(dl);
+const fl=new THREE.PointLight(0xff6a2a,0,40);fl.position.set(3,4,0);S.add(fl);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const mat=(c,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.6},o||{}));
+function box(w,h,d,c,x,z){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(c));m.position.set(x,h/2,z);S.add(m);return m}
+function lab(t,x,y,z,s){const c=document.createElement('canvas');c.width=256;c.height=64;const g=c.getContext('2d');g.font='bold 30px sans-serif';g.fillStyle='#fff';g.textAlign='center';g.fillText(t,128,42);
+const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false}));sp.position.set(x,y,z);sp.scale.set(s*4,s,1);S.add(sp)}
+const bd=box(19,.3,10.5,0x2b3644,0,0);bd.position.y=-.15;
+const T={},TN={},D={},L={};
+function term(id,x,y,z,c,n){const m=new THREE.Mesh(new THREE.SphereGeometry(.24,16,12),mat(c,{emissive:c,emissiveIntensity:.3}));m.position.set(x,y,z);m.userData={id,c};S.add(m);T[id]=m;TN[id]=n}
+function dev(id,name,x,z,w,d,h,c,terms){const m=box(w,h,d,c,x,z);D[id]=m;lab(name,x,h+1.1,z,.55);
+terms.forEach(([k,dx,dz,sf,tc])=>term(id+'.'+k,x+dx,h+.3,z+dz,tc,name+(sf?' '+sf:'')));return m}
+function led(id){const m=D[id],s=new THREE.Mesh(new THREE.SphereGeometry(.18,12,8),new THREE.MeshBasicMaterial({color:0x333333}));
+s.position.set(m.position.x,m.geometry.parameters.height+.2,m.position.z+.55);S.add(s);L[id]=s}
+const MC=0xffc34d,CC=0x5fd3ff;
+dev('src','3상 전원 RST',-7.5,-2.5,1.6,2.4,.6,0x555d6b,[['out',0,0,'',MC]]);
+dev('mccb','MCCB',-4.5,-2.5,1.8,2,1,0x3b4a5e,[['in',-.5,0,'입력',MC],['out',.5,0,'출력',MC]]);
+dev('km1','KM1 주접촉기',-1.5,-2.5,1.8,2,1.2,0x3b4a5e,[['in',-.5,0,'입력',MC],['out',.5,0,'출력',MC]]);
+dev('thr','THR 과부하계전기',1.5,-2.5,1.8,2,1,0x4a4f3a,[['in',-.5,0,'입력',MC],['out',.5,0,'출력',MC]]);
+dev('kmd','KMΔ 접촉기',1.5,.8,1.8,2,1.2,0x3b4a5e,[['in',-.5,0,'입력',MC],['out',.5,0,'출력',MC]]);
+dev('kmy','KMY 접촉기',5.5,.8,1.8,2,1.2,0x3b4a5e,[['in',0,0,'입력',MC]]);
+dev('cp','제어전원',-7.5,3.3,1.4,1.6,.8,0x555d6b,[['out',0,0,'',CC]]);
+dev('stop','STOP (b접점)',-5.5,3.3,1.4,1.6,.8,0xb83a3a,[['in',-.4,0,'입력',CC],['out',.4,0,'출력',CC]]);
+dev('start','START (a접점)',-3.5,3.3,1.4,1.6,.8,0x2f9e62,[['in',-.4,0,'입력',CC],['out',.4,0,'출력',CC]]);
+dev('k1c','KM1 코일',-1.5,3.3,1.4,1.6,.8,0x3b4a5e,[['in',-.4,0,'입력',CC],['out',.4,0,'출력',CC]]);
+dev('kt','KT 타이머',1.5,3.3,1.4,1.6,.8,0x4a4f3a,[['in',0,0,'입력',CC]]);
+dev('kmyc','KMY 코일',3.5,3.3,1.4,1.6,.8,0x3b4a5e,[]);
+dev('kdc','KMΔ 코일',5.5,3.3,1.4,1.6,.8,0x3b4a5e,[]);
+['k1c','kt','kmyc','kdc'].forEach(led);
+// 전동기
+const body=new THREE.Mesh(new THREE.CylinderGeometry(1,1,3,28),mat(0x4a6a8a,{emissive:0x000000}));body.rotation.z=Math.PI/2;body.position.set(5.5,1,-2.5);S.add(body);
+const rotor=new THREE.Group();rotor.position.set(7.2,1,-2.5);S.add(rotor);
+for(let i=0;i<4;i++){const b=new THREE.Mesh(new THREE.BoxGeometry(.1,1.5,.2),mat(0xdddddd));b.rotation.x=i*Math.PI/4;rotor.add(b)}
+lab('3상 유도전동기',5.5,3.1,-2.5,.55);
+term('mot.u1',4.8,2.3,-2.5,MC,'전동기 U1 V1 W1');term('mot.u2',6.2,2.3,-2.5,MC,'전동기 U2 V2 W2');
+// 결선 정의 [a,b,주회로,설명]
+const REQ=[['src.out','mccb.in',1,'전원 → MCCB'],['mccb.out','km1.in',1,'MCCB → KM1'],['km1.out','thr.in',1,'KM1 → THR'],['thr.out','mot.u1',1,'THR → 전동기 U1V1W1'],
+['mot.u1','kmd.in',1,'U1V1W1 → KMΔ (Δ 접속)'],['kmd.out','mot.u2',1,'KMΔ → 전동기 U2V2W2'],['mot.u2','kmy.in',1,'U2V2W2 → KMY (Y 중성점)'],
+['cp.out','stop.in',0,'제어전원 → STOP(b)'],['stop.out','start.in',0,'STOP → START(a) · 자기유지'],['start.out','k1c.in',0,'START → KM1 코일'],['k1c.out','kt.in',0,'KM1 코일 → KT · KMY · KMΔ 코일']];
+const kk=(a,b)=>[a,b].sort().join('|'),wired=new Set(),wmap={},order=[];
+function wire(a,b,main,col){const A=T[a].position,B=T[b].position,h=Math.max(A.y,B.y)+.9+Math.random()*.5;
+const g=new THREE.TubeGeometry(new THREE.CatmullRomCurve3([A.clone(),A.clone().setY(h),B.clone().setY(h),B.clone()]),24,main?.1:.06,6);
+const m=new THREE.Mesh(g,mat(col||(main?0xff9d2e:0x4aa8ff),{emissive:0x000000}));m.userData.main=main;S.add(m);return m}
+let sel=[];
+function setSel(){Object.values(T).forEach(m=>{const s=sel.includes(m.userData.id);m.scale.setScalar(s?1.6:1);m.material.emissive.setHex(s?0xffffff:m.userData.c);m.material.emissiveIntensity=s?.8:.3});
+P('sel').textContent=sel.length?'선택: '+sel.map(i=>TN[i]).join('  ↔  '):'단자(구)를 2개 선택하세요. 드래그: 회전 · 휠/핀치: 확대'}
+function msg(t){P('sel').textContent=t}
+function ui(){P('cl').innerHTML=REQ.map(r=>`<li class="${wired.has(kk(r[0],r[1]))?'d':''}">${r[3]}</li>`).join('');P('pg').textContent=`필수 결선 ${wired.size} / 11`}
+P('bc').onclick=()=>{if(sel.length<2)return msg('먼저 단자 2개를 선택하세요.');const key=kk(sel[0],sel[1]),r=REQ.find(r=>kk(r[0],r[1])==key);
+if(!r){const w=wire(sel[0],sel[1],0,0xff3030);setTimeout(()=>{S.remove(w)},900);sel=[];setSel();return msg('✗ 잘못된 결선입니다. 회로 구성을 다시 확인하세요.')}
+if(wired.has(key))return msg('이미 연결된 결선입니다.');
+wmap[key]=wire(r[0],r[1],r[2]);wired.add(key);order.push(key);sel=[];setSel();ui();if(wired.size==11)msg('✓ 필수 결선 완료! 기동 버튼을 눌러보세요.')};
+P('bu').onclick=()=>{const k=order.pop();if(!k)return;S.remove(wmap[k]);delete wmap[k];wired.delete(k);reset();ui()};
+P('br').onclick=()=>{order.splice(0).forEach(k=>{S.remove(wmap[k]);delete wmap[k]});wired.clear();sel=[];setSel();reset();ui()};
+// 시뮬레이션
+let mode='idle',t=0,tm=0,kt=3,sp=0,rot=0,heat=0,on={};
+const INFO0='<b>핵심 학습 포인트</b><br>· 타이머(ON-delay)로 Y → Δ 자동 전환<br>· Y용·Δ용 MC의 역할과 상호 인터록<br>· Y 기동으로 기동전류 저감(Δ 직입의 약 1/3)';
+function set(o){on=o;[['k1c','km1'],['kmyc','kmy'],['kdc','kmd'],['kt']].forEach(([a,b])=>{L[a].material.color.setHex(o[a]?0x39ff88:0x333333);if(b)D[b].material.emissive.setHex(o[a]?0x1f6a3e:0)})}
+function go(m){mode=m;t=0;
+if(m=='Y'||m=='Ys')set({k1c:1,kmyc:1,kt:1});else if(m=='dead')set({k1c:1,kt:1});else if(m=='D')set({k1c:1,kdc:1,kt:1});
+else if(m=='short'){set({k1c:1,kmyc:1,kdc:1,kt:1});P('info').innerHTML='<b style="color:var(--er)">! Y·Δ 동시 투입 (전원 단락)</b><br>원인: KMY↔KMΔ 상호 NC 인터록 미결선, 두 코일 동시 여자<br>결과: 3상 전원 단락, 아크·장비 손상 위험<br><b>해결</b>: 상호 NC 인터록 결선 · 기계식 인터록 확인 · 타이머 접점 순서 점검'}
+else if(m=='trip'){set({});D.mccb.material.emissive.setHex(0xaa1111)}
+else set({})}
+function reset(){heat=0;D.mccb.material.emissive.setHex(0);go('idle');P('info').innerHTML=INFO0}
+P('bs').onclick=()=>{if(wired.size<11)return msg('필수 결선을 모두 완료해야 기동할 수 있습니다.');if(mode!='idle')return;kt=+P('sl').value;go('Y')};
+P('bx').onclick=reset;
+P('f1').onclick=()=>{reset();go('short')};
+P('f2').onclick=()=>{reset();kt=+P('sl').value;go('Ys');P('info').innerHTML='<b style="color:var(--er)">! 타이머 전환 불발</b><br>원인: 타이머 설정 오류·접점 불량, KMY 복귀 불량<br>결과: Δ로 전환되지 않고 Y 상태로 계속 운전, 모터 과열<br><b>해결</b>: 타이머 설정·접점 점검, KMY 복귀 확인'};
+P('sl').oninput=e=>P('kv').textContent=e.target.value;
+const sparks=[];for(let i=0;i<10;i++){const s=new THREE.Mesh(new THREE.SphereGeometry(.1,6,6),new THREE.MeshBasicMaterial({color:0xffcc33}));s.visible=false;S.add(s);sparks.push(s)}
+function txt(){const r=Math.max(0,kt-t).toFixed(1);return{idle:wired.size<11?'대기 중 · 필수 배선 완료 후 기동':'대기 중 · ▶ 기동 가능',Y:`Y 기동 중 · 기동전류 약 1/3 · KT ${r}s`,dead:'전환 중 · KMY 개방 → 데드타임',D:'Δ 정상 운전 중',Ys:t>=kt?'⚠ 타이머 전환 불발 · Y 상태로 계속 운전 중 (과열)':`Y 기동 중 · KT ${r}s`,short:'⚡ 상간 단락! 고장전류 발생',trip:'MCCB 트립 · 정지 / 리셋 후 재시도'}[mode]}
+function sim(dt){t+=dt;tm+=dt;
+if(mode=='Y'&&t>=kt)go('dead');else if(mode=='dead'&&t>=.5)go('D');else if(mode=='short'&&t>1.8)go('trip');
+if(mode=='Ys'&&t>=kt)heat=Math.min(1,heat+dt*.12);
+const tg={Y:2.5,Ys:2.5,dead:2.5,D:9}[mode]||0;sp+=(tg-sp)*Math.min(1,dt*2);rot+=sp*dt;rotor.rotation.x=rot;
+body.material.emissive.setRGB(heat*.8,heat*.08,0);
+const sh=mode=='short';sparks.forEach(s=>{s.visible=sh&&Math.random()<.6;s.position.set(1.5+Math.random()*4,1.6+Math.random()*.8,.8+Math.random()-.5)});
+fl.intensity=sh?Math.random()*60:0;
+const live=mode=='Y'||mode=='Ys'||mode=='dead'||mode=='D';
+for(const w of Object.values(wmap)){const m=w.userData.main;
+w.material.emissive.setHex(sh&&m?0xff2020:live?(m?0xff8000:0x2080ff):0);
+w.material.emissiveIntensity=sh?Math.random():live?.4+.3*Math.sin(tm*8):0}
+P('st').textContent=txt();P('st').style.color=(sh||mode=='trip'||(mode=='Ys'&&t>=kt))?'var(--er)':''}
+// 카메라
+let th=.35,ph=.95,dist=20,shake=0;
+function cam(){const s=mode=='short'?.25:0;C.position.set(dist*Math.sin(ph)*Math.sin(th)+(Math.random()-.5)*s,dist*Math.cos(ph),dist*Math.sin(ph)*Math.cos(th)+(Math.random()-.5)*s);C.lookAt(0,.5,.5)}
+let first=1;function rs(){const w=wrap.clientWidth,h=wrap.clientHeight;R.setSize(w,h);C.aspect=w/h;C.updateProjectionMatrix();if(first){first=0;dist=C.aspect<1?34:21}}
+new ResizeObserver(rs).observe(wrap);rs();
+const ptrs=new Map();let mv=0;const ray=new THREE.Raycaster();
+el.addEventListener('pointerdown',e=>{el.setPointerCapture(e.pointerId);if(!ptrs.size)mv=0;ptrs.set(e.pointerId,[e.clientX,e.clientY])});
+el.addEventListener('pointermove',e=>{const o=ptrs.get(e.pointerId);if(!o)return;const n=[e.clientX,e.clientY];
+if(ptrs.size==2){const oth=[...ptrs].find(([i])=>i!=e.pointerId)[1];dist=clamp(dist*Math.hypot(o[0]-oth[0],o[1]-oth[1])/Math.hypot(n[0]-oth[0],n[1]-oth[1]),8,40);mv+=99}
+else{th-=(n[0]-o[0])*.008;ph=clamp(ph-(n[1]-o[1])*.008,.15,1.5)}
+mv+=Math.abs(n[0]-o[0])+Math.abs(n[1]-o[1]);ptrs.set(e.pointerId,n)});
+el.addEventListener('pointerup',e=>{const was=ptrs.size;ptrs.delete(e.pointerId);if(was==1&&mv<6)pick(e)});
+el.addEventListener('pointercancel',e=>ptrs.delete(e.pointerId));
+el.addEventListener('wheel',e=>{e.preventDefault();dist=clamp(dist*(1+e.deltaY*.001),8,40)},{passive:false});
+function pick(e){const r=el.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),C);
+const h=ray.intersectObjects(Object.values(T))[0];if(!h)return;const id=h.object.userData.id,i=sel.indexOf(id);
+if(i>=0)sel.splice(i,1);else{if(sel.length>=2)sel.shift();sel.push(id)}setSel()}
+let last=performance.now();
+function loop(now){requestAnimationFrame(loop);const dt=Math.min(.05,(now-last)/1000);last=now;sim(dt);cam();R.render(S,C)}
+set({});ui();P('info').innerHTML=INFO0;requestAnimationFrame(loop);
+</script></body></html>
